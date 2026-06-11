@@ -10,6 +10,7 @@ from .ffmpeg import FFmpegError, extract_sparse_samples
 from .images import list_sample_images, read_image, triptych, write_pgm
 from .report import load_analysis, load_zones, write_reports
 from .scoring import DEFAULT_HEIGHTS, DEFAULT_KERNELS, analyze_image
+from .vapoursynth_backend import VS_HEIGHTS
 
 
 def _parse_csv_ints(value: str) -> list[int]:
@@ -274,7 +275,7 @@ def build_parser() -> argparse.ArgumentParser:
     probe_vs.add_argument(
         "--heights",
         type=_parse_csv_ints,
-        default=[720, 756, 765, 810, 864, 900, 936, 960, 1008],
+        default=list(VS_HEIGHTS),
         help="comma-separated native-height candidates",
     )
     probe_vs.add_argument(

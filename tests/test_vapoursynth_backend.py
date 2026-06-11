@@ -6,6 +6,7 @@ import unittest
 from anime_descale_assist.images import write_pgm
 from anime_descale_assist.resample import resize_gray
 from anime_descale_assist.vapoursynth_backend import (
+    VS_HEIGHTS,
     VSCandidate,
     select_height_candidate,
 )
@@ -49,6 +50,9 @@ class VapourSynthBackendTests(unittest.TestCase):
 
 
 class HeightSelectionTests(unittest.TestCase):
+    def test_default_vs_candidates_include_800p(self) -> None:
+        self.assertIn(800, VS_HEIGHTS)
+
     def test_selects_first_local_minimum_for_720p_curve(self) -> None:
         summary = [
             VSCandidate(720, 1280, "bilinear", 0.109, 0.553, []),

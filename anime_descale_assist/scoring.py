@@ -7,7 +7,7 @@ from .models import CandidateScore, SampleResult
 from .resample import normalize_kernel_name, resize_gray
 
 
-DEFAULT_HEIGHTS = (540, 576, 648, 720, 756, 810, 864, 900, 936, 960, 1008)
+DEFAULT_HEIGHTS = (540, 576, 648, 720, 756, 800, 810, 864, 900, 936, 960, 1008)
 DEFAULT_KERNELS = ("bilinear", "catrom", "bicubicsharp", "lanczos3")
 
 

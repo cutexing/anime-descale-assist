@@ -2,7 +2,7 @@ import unittest
 
 from anime_descale_assist.clustering import cluster_samples
 from anime_descale_assist.resample import resize_gray
-from anime_descale_assist.scoring import analyze_image
+from anime_descale_assist.scoring import DEFAULT_HEIGHTS, analyze_image
 
 
 def synthetic_native(width: int, height: int) -> list[list[int]]:
@@ -21,6 +21,9 @@ def synthetic_native(width: int, height: int) -> list[list[int]]:
 
 
 class ScoringTests(unittest.TestCase):
+    def test_default_candidates_include_800p(self) -> None:
+        self.assertIn(800, DEFAULT_HEIGHTS)
+
     def test_roundtrip_prefers_true_synthetic_height(self) -> None:
         native = synthetic_native(80, 45)
         source = resize_gray(native, 160, 90, "bilinear")

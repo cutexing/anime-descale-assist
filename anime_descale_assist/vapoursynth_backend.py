@@ -9,7 +9,7 @@ from typing import Any
 from .images import GrayImage, list_sample_images, read_image
 
 VS_KERNELS = ("bilinear", "catrom", "bicubicsharp", "mitchell", "lanczos3", "spline36")
-VS_HEIGHTS = (720, 756, 765, 810, 864, 900, 936, 960, 1008)
+VS_HEIGHTS = (720, 756, 765, 800, 810, 864, 900, 936, 960, 1008)
 VS_SHIFTS = (0.0, -0.5, 0.5)
 
 
