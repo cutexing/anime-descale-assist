@@ -23,6 +23,13 @@ def _parse_csv_strings(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _parse_csv_floats(value: str) -> list[float]:
+    try:
+        return [float(item.strip()) for item in value.split(",") if item.strip()]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
 def _sample_paths(
     input_path: Path,
     output_dir: Path,
@@ -174,6 +181,7 @@ def probe_vs_command(args: argparse.Namespace) -> int:
         kernels=args.kernels,
         max_samples=args.max_samples,
         score_exponent=args.score_exponent,
+        shifts=args.shifts,
     )
     payload = result.to_jsonable()
     payload["vapoursynth"] = vapoursynth_environment()
@@ -192,13 +200,16 @@ def probe_vs_command(args: argparse.Namespace) -> int:
     for candidate in result.height_summary[: args.print_count]:
         print(
             f"  {candidate.width}x{candidate.height} {candidate.kernel:13s} "
-            f"score={candidate.score:.6f} raw={candidate.raw_error:.6f}"
+            f"score={candidate.score:.6f} raw={candidate.raw_error:.6f} "
+            f"shift=({candidate.src_left:g},{candidate.src_top:g}) "
+            f"signal={candidate.height_signal:.4f}"
         )
     print("kernel candidates for best height:")
     for candidate in result.kernel_summary[: args.print_count]:
         print(
             f"  {candidate.kernel:13s} "
-            f"score={candidate.score:.6f} raw={candidate.raw_error:.6f}"
+            f"score={candidate.score:.6f} raw={candidate.raw_error:.6f} "
+            f"shift=({candidate.src_left:g},{candidate.src_top:g})"
         )
     print(f"wrote {output_dir / 'vs_probe.json'}")
     return 0
@@ -263,7 +274,7 @@ def build_parser() -> argparse.ArgumentParser:
     probe_vs.add_argument(
         "--heights",
         type=_parse_csv_ints,
-        default=[720, 756, 810, 864, 900, 936, 960, 1008],
+        default=[720, 756, 765, 810, 864, 900, 936, 960, 1008],
         help="comma-separated native-height candidates",
     )
     probe_vs.add_argument(
@@ -277,6 +288,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=4.0,
         help="penalty exponent for near-source candidates",
+    )
+    probe_vs.add_argument(
+        "--shifts",
+        type=_parse_csv_floats,
+        default=[0.0, -0.5, 0.5],
+        help="comma-separated src_left/src_top shifts for low-confidence odd-height refinement",
     )
     probe_vs.add_argument("--print-count", type=int, default=8, help="ranked candidates to print")
     probe_vs.set_defaults(func=probe_vs_command)

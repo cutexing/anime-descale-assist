@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import ctypes
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from statistics import median
 from typing import Any
@@ -9,7 +9,8 @@ from typing import Any
 from .images import GrayImage, list_sample_images, read_image
 
 VS_KERNELS = ("bilinear", "catrom", "bicubicsharp", "mitchell", "lanczos3", "spline36")
-VS_HEIGHTS = (720, 756, 810, 864, 900, 936, 960, 1008)
+VS_HEIGHTS = (720, 756, 765, 810, 864, 900, 936, 960, 1008)
+VS_SHIFTS = (0.0, -0.5, 0.5)
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,9 @@ class VSCandidate:
     score: float
     raw_error: float
     frame_errors: list[float]
+    src_left: float = 0.0
+    src_top: float = 0.0
+    height_signal: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -177,49 +181,73 @@ def edge_weighted_mae_array(source: Any, reconstruction: Any) -> float:
     return float(np.sum(error * weight) / np.sum(weight))
 
 
-def descale_clip(clip: Any, kernel: str, width: int, height: int) -> Any:
+def descale_clip(
+    clip: Any,
+    kernel: str,
+    width: int,
+    height: int,
+    src_left: float = 0.0,
+    src_top: float = 0.0,
+) -> Any:
     ensure_descale()
     d = _imports()[1].core.descale
+    shift = {"src_left": src_left, "src_top": src_top}
     if kernel == "bilinear":
-        return d.Debilinear(clip, width, height)
+        return d.Debilinear(clip, width, height, **shift)
     if kernel == "catrom":
-        return d.Debicubic(clip, width, height, b=0, c=0.5)
+        return d.Debicubic(clip, width, height, b=0, c=0.5, **shift)
     if kernel == "bicubicsharp":
-        return d.Debicubic(clip, width, height, b=0, c=0.75)
+        return d.Debicubic(clip, width, height, b=0, c=0.75, **shift)
     if kernel == "mitchell":
-        return d.Debicubic(clip, width, height, b=1 / 3, c=1 / 3)
+        return d.Debicubic(clip, width, height, b=1 / 3, c=1 / 3, **shift)
     if kernel == "lanczos3":
-        return d.Delanczos(clip, width, height, taps=3)
+        return d.Delanczos(clip, width, height, taps=3, **shift)
     if kernel == "spline36":
-        return d.Despline36(clip, width, height)
+        return d.Despline36(clip, width, height, **shift)
     raise ValueError(f"unsupported VapourSynth descale kernel: {kernel}")
 
 
-def upscale_clip(clip: Any, kernel: str, width: int, height: int) -> Any:
+def upscale_clip(
+    clip: Any,
+    kernel: str,
+    width: int,
+    height: int,
+    src_left: float = 0.0,
+    src_top: float = 0.0,
+) -> Any:
     ensure_descale()
     d = _imports()[1].core.descale
+    shift = {"src_left": src_left, "src_top": src_top}
     if kernel == "bilinear":
-        return d.Bilinear(clip, width, height)
+        return d.Bilinear(clip, width, height, **shift)
     if kernel == "catrom":
-        return d.Bicubic(clip, width, height, b=0, c=0.5)
+        return d.Bicubic(clip, width, height, b=0, c=0.5, **shift)
     if kernel == "bicubicsharp":
-        return d.Bicubic(clip, width, height, b=0, c=0.75)
+        return d.Bicubic(clip, width, height, b=0, c=0.75, **shift)
     if kernel == "mitchell":
-        return d.Bicubic(clip, width, height, b=1 / 3, c=1 / 3)
+        return d.Bicubic(clip, width, height, b=1 / 3, c=1 / 3, **shift)
     if kernel == "lanczos3":
-        return d.Lanczos(clip, width, height, taps=3)
+        return d.Lanczos(clip, width, height, taps=3, **shift)
     if kernel == "spline36":
-        return d.Spline36(clip, width, height)
+        return d.Spline36(clip, width, height, **shift)
     raise ValueError(f"unsupported VapourSynth upscale kernel: {kernel}")
 
 
-def roundtrip_clip(clip: Any, kernel: str, native_width: int, native_height: int) -> Any:
-    native = descale_clip(clip, kernel, native_width, native_height)
-    return upscale_clip(native, kernel, clip.width, clip.height)
+def roundtrip_clip(
+    clip: Any,
+    kernel: str,
+    native_width: int,
+    native_height: int,
+    src_left: float = 0.0,
+    src_top: float = 0.0,
+) -> Any:
+    native = descale_clip(clip, kernel, native_width, native_height, src_left, src_top)
+    return upscale_clip(native, kernel, clip.width, clip.height, src_left, src_top)
 
 
-def _height_confidence(best: VSCandidate, height_summary: list[VSCandidate]) -> float:
-    second = next((item for item in height_summary if item.height != best.height), None)
+def _legacy_score_confidence(best: VSCandidate, height_summary: list[VSCandidate]) -> float:
+    by_score = sorted(height_summary, key=lambda item: item.score)
+    second = next((item for item in by_score if item.height != best.height), None)
     if second is None or second.score <= 1e-9:
         return 0.0
     separation = max(0.0, (second.score - best.score) / second.score)
@@ -235,12 +263,145 @@ def _kernel_confidence(best: VSCandidate, kernel_summary: list[VSCandidate]) -> 
     return round(max(0.0, min(1.0, separation * 2.5)), 4)
 
 
+def annotate_height_signals(height_summary: list[VSCandidate]) -> list[VSCandidate]:
+    ordered = sorted(height_summary, key=lambda item: item.height)
+    if len(ordered) < 2:
+        return [replace(item, height_signal=0.0) for item in ordered]
+
+    annotated: list[VSCandidate] = []
+    for index, item in enumerate(ordered):
+        signal = 0.0
+        if index == 0:
+            next_item = ordered[index + 1]
+            if next_item.raw_error > item.raw_error:
+                signal = (next_item.raw_error - item.raw_error) / max(item.raw_error, 1e-9)
+        elif index < len(ordered) - 1:
+            previous = ordered[index - 1]
+            next_item = ordered[index + 1]
+            previous_drop = previous.raw_error - item.raw_error
+            next_drop = item.raw_error - next_item.raw_error
+            if previous_drop > 0:
+                signal = (
+                    previous_drop - max(next_drop, 0.0)
+                ) / max(item.raw_error, 1e-9)
+        annotated.append(replace(item, height_signal=round(max(0.0, signal), 8)))
+    return annotated
+
+
+def select_height_candidate(height_summary: list[VSCandidate]) -> tuple[VSCandidate, str]:
+    ordered = annotate_height_signals(height_summary)
+    if not ordered:
+        raise ValueError("height summary is empty")
+
+    if len(ordered) > 1 and ordered[0].raw_error <= ordered[1].raw_error:
+        return ordered[0], "first_local_minimum"
+
+    for item in ordered[1:-1]:
+        if item.height_signal >= 0.08:
+            return item, "native_knee"
+
+    return min(ordered, key=lambda item: item.score), "score_fallback"
+
+
+def height_confidence(best: VSCandidate, height_summary: list[VSCandidate], method: str) -> float:
+    if method == "first_local_minimum":
+        return max(_legacy_score_confidence(best, height_summary), 0.8)
+    if method == "native_knee":
+        raw_quality = max(0.0, min(1.0, (2.0 - best.raw_error) / 2.0))
+        return round(max(0.0, min(1.0, best.height_signal * 4.5 + raw_quality * 0.1)), 4)
+    return _legacy_score_confidence(best, height_summary)
+
+
+def _score_candidate(
+    source: Any,
+    source_arrays: list[Any],
+    info: SampleClipInfo,
+    height: int,
+    kernel: str,
+    score_exponent: float,
+    src_left: float = 0.0,
+    src_top: float = 0.0,
+) -> VSCandidate:
+    width = max(16, round(info.width * height / info.height))
+    reconstruction = roundtrip_clip(source, kernel, width, height, src_left, src_top)
+    frame_errors = [
+        edge_weighted_mae_array(
+            source_arrays[n],
+            frame_to_array(reconstruction.get_frame(n)),
+        )
+        for n in range(info.length)
+    ]
+    raw_error = float(median(frame_errors))
+    score = raw_error * ((height / info.height) ** score_exponent)
+    return VSCandidate(
+        height=height,
+        width=width,
+        kernel=kernel,
+        score=round(score, 8),
+        raw_error=round(raw_error, 8),
+        frame_errors=[round(value, 8) for value in frame_errors],
+        src_left=src_left,
+        src_top=src_top,
+    )
+
+
+def _resolve_candidates(
+    candidates: list[VSCandidate],
+) -> tuple[
+    list[VSCandidate],
+    VSCandidate,
+    list[VSCandidate],
+    list[VSCandidate],
+    float,
+    float,
+    str,
+]:
+    ranked = sorted(candidates, key=lambda item: item.score)
+    raw_height_summary = sorted(
+        [
+            min(
+                (item for item in ranked if item.height == height),
+                key=lambda item: item.raw_error,
+            )
+            for height in sorted({item.height for item in ranked})
+        ],
+        key=lambda item: item.score,
+    )
+    selected_height, height_method = select_height_candidate(raw_height_summary)
+    height_summary = sorted(
+        annotate_height_signals(raw_height_summary),
+        key=lambda item: (
+            0 if item.height == selected_height.height else 1,
+            -item.height_signal,
+            item.score,
+        ),
+    )
+    best = next(item for item in height_summary if item.height == selected_height.height)
+    kernel_summary = sorted(
+        [item for item in ranked if item.height == best.height],
+        key=lambda item: item.score,
+    )
+    height_confidence_value = height_confidence(best, height_summary, height_method)
+    kernel_confidence = _kernel_confidence(best, kernel_summary)
+    classification = "high_confidence_height" if height_confidence_value >= 0.75 else "needs_review"
+    return (
+        ranked,
+        best,
+        height_summary,
+        kernel_summary,
+        height_confidence_value,
+        kernel_confidence,
+        classification,
+    )
+
+
 def probe_samples(
     path: Path | str,
     heights: list[int] | tuple[int, ...] = VS_HEIGHTS,
     kernels: list[str] | tuple[str, ...] = VS_KERNELS,
     max_samples: int = 8,
     score_exponent: float = 4.0,
+    shifts: list[float] | tuple[float, ...] = VS_SHIFTS,
 ) -> VSProbeResult:
     ensure_descale()
     source_path = Path(path)
@@ -252,45 +413,78 @@ def probe_samples(
     for height in heights:
         if height >= info.height:
             continue
-        width = max(16, round(info.width * height / info.height))
         for kernel in kernels:
-            reconstruction = roundtrip_clip(source, kernel, width, height)
-            frame_errors = [
-                edge_weighted_mae_array(
-                    source_arrays[n],
-                    frame_to_array(reconstruction.get_frame(n)),
-                )
-                for n in range(info.length)
-            ]
-            raw_error = float(median(frame_errors))
-            score = raw_error * ((height / info.height) ** score_exponent)
             candidates.append(
-                VSCandidate(
-                    height=height,
-                    width=width,
-                    kernel=kernel,
-                    score=round(score, 8),
-                    raw_error=round(raw_error, 8),
-                    frame_errors=[round(value, 8) for value in frame_errors],
+                _score_candidate(
+                    source,
+                    source_arrays,
+                    info,
+                    height,
+                    kernel,
+                    score_exponent,
                 )
             )
 
     if not candidates:
         raise ValueError("no valid VapourSynth descale candidates were produced")
 
-    ranked = sorted(candidates, key=lambda item: item.score)
-    best = ranked[0]
-    height_summary = sorted(
-        [min((item for item in ranked if item.height == height), key=lambda item: item.score) for height in sorted({item.height for item in ranked})],
-        key=lambda item: item.score,
-    )
-    kernel_summary = sorted(
-        [item for item in ranked if item.height == best.height],
-        key=lambda item: item.score,
-    )
-    height_confidence = _height_confidence(best, height_summary)
-    kernel_confidence = _kernel_confidence(best, kernel_summary)
-    classification = "high_confidence_height" if height_confidence >= 0.75 else "needs_review"
+    (
+        ranked,
+        best,
+        height_summary,
+        kernel_summary,
+        height_confidence_value,
+        kernel_confidence,
+        classification,
+    ) = _resolve_candidates(candidates)
+
+    shift_values = sorted(set(float(value) for value in shifts))
+    if height_confidence_value < 0.75 and any(value != 0.0 for value in shift_values):
+        base_scores = {
+            height: min(
+                (item for item in ranked if item.height == height),
+                key=lambda item: item.score,
+            )
+            for height in sorted({item.height for item in ranked})
+        }
+        refine_heights = [
+            height
+            for height in sorted(base_scores)
+            if height % 4 != 0 and base_scores[height].score <= best.score * 1.4
+        ]
+        seen = {
+            (item.height, item.kernel, item.src_left, item.src_top)
+            for item in candidates
+        }
+        for height in refine_heights:
+            for kernel in kernels:
+                for src_left in shift_values:
+                    for src_top in shift_values:
+                        key = (height, kernel, src_left, src_top)
+                        if key in seen:
+                            continue
+                        candidates.append(
+                            _score_candidate(
+                                source,
+                                source_arrays,
+                                info,
+                                height,
+                                kernel,
+                                score_exponent,
+                                src_left,
+                                src_top,
+                            )
+                        )
+                        seen.add(key)
+        (
+            ranked,
+            best,
+            height_summary,
+            kernel_summary,
+            height_confidence_value,
+            kernel_confidence,
+            classification,
+        ) = _resolve_candidates(candidates)
 
     return VSProbeResult(
         source=str(source_path),
@@ -302,7 +496,7 @@ def probe_samples(
         candidates=ranked,
         height_summary=height_summary,
         kernel_summary=kernel_summary,
-        height_confidence=height_confidence,
+        height_confidence=height_confidence_value,
         kernel_confidence=kernel_confidence,
         classification=classification,
     )

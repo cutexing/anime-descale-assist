@@ -13,6 +13,8 @@ core = vs.core
 samples = globals().get("samples", "sample/720p")
 height = int(globals().get("height", "720"))
 kernel = globals().get("kernel", "bilinear")
+src_left = float(globals().get("src_left", "0"))
+src_top = float(globals().get("src_top", "0"))
 
 sample_path = Path(samples)
 if not sample_path.is_absolute() and not sample_path.exists():
@@ -26,7 +28,7 @@ if not sample_path.is_absolute() and not sample_path.exists():
 src8, info = load_sample_clip(sample_path, max_samples=int(globals().get("max_samples", "8")))
 src = to_float_clip(src8)
 native_width = round(src.width * height / src.height)
-reconstruction = roundtrip_clip(src, kernel, native_width, height)
+reconstruction = roundtrip_clip(src, kernel, native_width, height, src_left, src_top)
 reconstruction8 = core.resize.Bicubic(
     reconstruction,
     format=vs.GRAY8,

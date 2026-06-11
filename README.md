@@ -75,7 +75,8 @@ Probe samples with VapourSynth and `vapoursynth-descale`:
 
 ```powershell
 .\.venv\Scripts\descale-assist.exe probe-vs sample\720p --out work\sample-vs
-.\.venv\Scripts\vspipe.exe --info --arg samples=sample\720p --arg height=720 --arg kernel=bilinear scripts\sample_roundtrip.vpy -
+.\.venv\Scripts\descale-assist.exe probe-vs sample\765p --out work\sample-765-vs
+.\.venv\Scripts\vspipe.exe --info --arg samples=sample\765p --arg height=765 --arg kernel=catrom --arg src_top=-0.5 scripts\sample_roundtrip.vpy -
 ```
 
 ## Current limits
