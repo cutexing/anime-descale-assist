@@ -9,7 +9,7 @@ from typing import Any
 from .images import GrayImage, list_sample_images, read_image
 
 VS_KERNELS = ("bilinear", "catrom", "bicubicsharp", "mitchell", "lanczos3", "spline36")
-VS_HEIGHTS = (720, 756, 765, 800, 810, 850, 864, 900, 936, 960, 1008)
+VS_HEIGHTS = (720, 756, 765, 800, 810, 838, 850, 864, 900, 936, 960, 1008)
 VS_SHIFTS = (0.0, -0.5, 0.5)
 
 
@@ -296,9 +296,9 @@ def select_height_candidate(height_summary: list[VSCandidate]) -> tuple[VSCandid
     if len(ordered) > 1 and ordered[0].raw_error <= ordered[1].raw_error:
         return ordered[0], "first_local_minimum"
 
-    for item in ordered[1:-1]:
-        if item.height_signal >= 0.08:
-            return item, "native_knee"
+    knees = [item for item in ordered[1:-1] if item.height_signal >= 0.08]
+    if knees:
+        return max(knees, key=lambda item: item.height_signal), "native_knee"
 
     return min(ordered, key=lambda item: item.score), "score_fallback"
 

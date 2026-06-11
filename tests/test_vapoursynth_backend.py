@@ -52,6 +52,7 @@ class VapourSynthBackendTests(unittest.TestCase):
 class HeightSelectionTests(unittest.TestCase):
     def test_default_vs_candidates_include_800p(self) -> None:
         self.assertIn(800, VS_HEIGHTS)
+        self.assertIn(838, VS_HEIGHTS)
         self.assertIn(850, VS_HEIGHTS)
 
     def test_selects_first_local_minimum_for_720p_curve(self) -> None:
@@ -92,6 +93,20 @@ class HeightSelectionTests(unittest.TestCase):
         self.assertEqual(selected.height, 765)
         self.assertEqual(method, "native_knee")
         self.assertEqual(selected.src_top, -0.5)
+
+    def test_selects_strongest_native_knee(self) -> None:
+        summary = [
+            VSCandidate(720, 1280, "lanczos3", 0.131, 0.665, []),
+            VSCandidate(756, 1344, "lanczos3", 0.144, 0.600, []),
+            VSCandidate(800, 1422, "lanczos3", 0.160, 0.532, []),
+            VSCandidate(838, 1490, "lanczos3", 0.167, 0.461, []),
+            VSCandidate(850, 1511, "lanczos3", 0.176, 0.459, []),
+            VSCandidate(864, 1536, "lanczos3", 0.180, 0.438, []),
+            VSCandidate(900, 1600, "lanczos3", 0.189, 0.391, []),
+        ]
+        selected, method = select_height_candidate(summary)
+        self.assertEqual(selected.height, 838)
+        self.assertEqual(method, "native_knee")
 
 
 if __name__ == "__main__":
