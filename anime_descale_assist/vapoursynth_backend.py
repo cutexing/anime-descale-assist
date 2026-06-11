@@ -9,7 +9,7 @@ from typing import Any
 from .images import GrayImage, list_sample_images, read_image
 
 VS_KERNELS = ("bilinear", "catrom", "bicubicsharp", "mitchell", "lanczos3", "spline36")
-VS_HEIGHTS = (720, 756, 765, 800, 810, 838, 850, 864, 900, 936, 960, 1008)
+VS_HEIGHTS = (720, 756, 765, 800, 810, 838, 850, 864, 874, 875, 900, 936, 960, 1008)
 VS_SHIFTS = (0.0, -0.5, 0.5)
 
 
@@ -450,7 +450,7 @@ def probe_samples(
         refine_heights = [
             height
             for height in sorted(base_scores)
-            if height % 4 != 0 and base_scores[height].score <= best.score * 1.4
+            if height % 4 != 0
         ]
         seen = {
             (item.height, item.kernel, item.src_left, item.src_top)
