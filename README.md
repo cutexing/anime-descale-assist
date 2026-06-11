@@ -7,7 +7,7 @@ final filter chain.
 
 The current path intentionally stays small:
 
-- probe an existing folder of `.pgm`, `.ppm`, `.pnm`, or uncompressed `.bmp`
+- probe an existing folder of `.pgm`, `.ppm`, `.pnm`, `.png`, or uncompressed `.bmp`
   frames
 - test candidate native heights, kernels, and sample-grid shifts through
   VapourSynth and `vapoursynth-descale`

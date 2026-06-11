@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import zlib
 from pathlib import Path
 import struct
 
 GrayImage = list[list[int]]
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 class ImageFormatError(ValueError):
@@ -135,9 +137,147 @@ def read_bmp(path: Path) -> tuple[GrayImage, int, int]:
     return rows, width, height
 
 
+def _paeth_predictor(left: int, above: int, upper_left: int) -> int:
+    estimate = left + above - upper_left
+    left_distance = abs(estimate - left)
+    above_distance = abs(estimate - above)
+    upper_left_distance = abs(estimate - upper_left)
+    if left_distance <= above_distance and left_distance <= upper_left_distance:
+        return left
+    if above_distance <= upper_left_distance:
+        return above
+    return upper_left
+
+
+def _png_channels(color_type: int) -> int:
+    channels = {
+        0: 1,
+        2: 3,
+        4: 2,
+        6: 4,
+    }.get(color_type)
+    if channels is None:
+        raise ImageFormatError("only grayscale, RGB, GA, and RGBA PNG files are supported")
+    return channels
+
+
+def read_png(path: Path) -> tuple[GrayImage, int, int]:
+    data = path.read_bytes()
+    if not data.startswith(PNG_SIGNATURE):
+        raise ImageFormatError(f"{path} is not a PNG file")
+
+    offset = len(PNG_SIGNATURE)
+    width: int | None = None
+    height: int | None = None
+    bit_depth: int | None = None
+    color_type: int | None = None
+    compression_method: int | None = None
+    filter_method: int | None = None
+    interlace_method: int | None = None
+    idat_parts: list[bytes] = []
+
+    while offset + 8 <= len(data):
+        chunk_length = struct.unpack_from(">I", data, offset)[0]
+        chunk_type = data[offset + 4 : offset + 8]
+        chunk_start = offset + 8
+        chunk_end = chunk_start + chunk_length
+        if chunk_end + 4 > len(data):
+            raise ImageFormatError("PNG chunk extends past end of file")
+        chunk_data = data[chunk_start:chunk_end]
+        offset = chunk_end + 4
+
+        if chunk_type == b"IHDR":
+            if chunk_length != 13:
+                raise ImageFormatError("PNG IHDR chunk has invalid length")
+            (
+                width,
+                height,
+                bit_depth,
+                color_type,
+                compression_method,
+                filter_method,
+                interlace_method,
+            ) = struct.unpack(">IIBBBBB", chunk_data)
+        elif chunk_type == b"IDAT":
+            idat_parts.append(chunk_data)
+        elif chunk_type == b"IEND":
+            break
+
+    if width is None or height is None or bit_depth is None or color_type is None:
+        raise ImageFormatError("PNG is missing an IHDR chunk")
+    if width <= 0 or height <= 0:
+        raise ImageFormatError("PNG dimensions must be positive")
+    if bit_depth != 8:
+        raise ImageFormatError("only 8-bit PNG files are supported")
+    if compression_method != 0 or filter_method != 0:
+        raise ImageFormatError("unsupported PNG compression or filter method")
+    if interlace_method != 0:
+        raise ImageFormatError("interlaced PNG files are not supported")
+    if not idat_parts:
+        raise ImageFormatError("PNG is missing image data")
+
+    channels = _png_channels(color_type)
+    stride = width * channels
+    try:
+        inflated = zlib.decompress(b"".join(idat_parts))
+    except zlib.error as exc:
+        raise ImageFormatError("PNG image data is not valid zlib data") from exc
+
+    expected = (stride + 1) * height
+    if len(inflated) != expected:
+        raise ImageFormatError("PNG payload length does not match image dimensions")
+
+    rows: GrayImage = []
+    previous = bytearray(stride)
+    cursor = 0
+    for _ in range(height):
+        filter_type = inflated[cursor]
+        cursor += 1
+        scanline = bytearray(inflated[cursor : cursor + stride])
+        cursor += stride
+
+        for index, value in enumerate(scanline):
+            left = scanline[index - channels] if index >= channels else 0
+            above = previous[index]
+            upper_left = previous[index - channels] if index >= channels else 0
+            if filter_type == 0:
+                predictor = 0
+            elif filter_type == 1:
+                predictor = left
+            elif filter_type == 2:
+                predictor = above
+            elif filter_type == 3:
+                predictor = (left + above) // 2
+            elif filter_type == 4:
+                predictor = _paeth_predictor(left, above, upper_left)
+            else:
+                raise ImageFormatError(f"unsupported PNG scanline filter: {filter_type}")
+            scanline[index] = (value + predictor) & 0xFF
+
+        row: list[int] = []
+        for x in range(width):
+            pixel = x * channels
+            if color_type == 0:
+                row.append(scanline[pixel])
+            elif color_type == 4:
+                row.append(scanline[pixel])
+            else:
+                red = scanline[pixel]
+                green = scanline[pixel + 1]
+                blue = scanline[pixel + 2]
+                row.append(round(0.2126 * red + 0.7152 * green + 0.0722 * blue))
+        rows.append(row)
+        previous = scanline
+
+    return rows, width, height
+
+
 def read_image(path: Path) -> tuple[GrayImage, int, int]:
-    if path.suffix.lower() == ".bmp":
+    suffix = path.suffix.lower()
+    if suffix == ".bmp":
         return read_bmp(path)
+    if suffix == ".png":
+        return read_png(path)
     return read_pnm(path)
 
 
@@ -158,7 +298,7 @@ def write_pgm(path: Path, image: GrayImage) -> None:
 
 
 def list_sample_images(path: Path) -> list[Path]:
-    extensions = {".pgm", ".ppm", ".pnm", ".bmp"}
+    extensions = {".pgm", ".ppm", ".pnm", ".bmp", ".png"}
     return sorted(
         item
         for item in path.rglob("*")
