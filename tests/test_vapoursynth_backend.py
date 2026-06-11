@@ -52,6 +52,7 @@ class VapourSynthBackendTests(unittest.TestCase):
 class HeightSelectionTests(unittest.TestCase):
     def test_default_vs_candidates_include_800p(self) -> None:
         self.assertIn(800, VS_HEIGHTS)
+        self.assertIn(850, VS_HEIGHTS)
 
     def test_selects_first_local_minimum_for_720p_curve(self) -> None:
         summary = [
