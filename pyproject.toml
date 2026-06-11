@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "anime-descale-assist"
+version = "0.1.0"
+description = "A conservative native-resolution auditor and descale assistant for anime sources."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "anime-descale-assist contributors" }
+]
+keywords = ["anime", "descale", "vapoursynth", "native-resolution", "video"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Multimedia :: Video",
+]
+dependencies = [
+  "imageio-ffmpeg>=0.5.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.0",
+  "ruff>=0.15",
+]
+vs = [
+  "numpy>=2.0",
+  "VapourSynth>=76",
+  "vapoursynth-descale>=12",
+]
+
+[project.scripts]
+descale-assist = "anime_descale_assist.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["anime_descale_assist*"]
